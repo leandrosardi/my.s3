@@ -1,0 +1,12 @@
+api_key: "CHANGE_ME"
+public_base_url: "https://storage.example.com"
+storage_root: "storage"
+max_upload_size_mb: 100
+follow_symlinks: false
+bind_host: "0.0.0.0"
+port: 4567
+puma_threads_min: 4
+puma_threads_max: 16
+log_level: info
+log_file: "log/app.log"
+timezone: "UTC"

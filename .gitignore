@@ -1,0 +1,12 @@
+# Bundler
+/vendor/bundle/
+
+# Logs and temp files
+log/
+tmp/
+*.log
+
+# Runtime files
+config.yml
+.env
+.byebug_history
