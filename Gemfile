@@ -4,3 +4,4 @@ source 'https://rubygems.org'
 
 gem 'sinatra', '2.2.4'
 gem 'puma', '5.6.9'
+gem 'sinatra-contrib', '2.2.4'

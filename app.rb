@@ -102,9 +102,12 @@ module MyS3
         halt_error 401, 'Invalid or missing API key'
       end
 
-      def json_response(data = {}, status_code: 200)
+      def json_response(data = nil, status_code: 200, **extra)
+        payload = { success: true }
+        payload.merge!(data) if data
+        payload.merge!(extra) unless extra.empty?
         status status_code
-        json({ success: true }.merge(data))
+        json(payload)
       end
 
       def enforce_upload_limit!(file)

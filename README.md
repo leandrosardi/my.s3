@@ -45,12 +45,12 @@ Any relative paths are resolved against the configuration file directory. The ap
 ## Running
 ```bash
 MY_S3_CONFIG=/srv/my_s3/config.yml bundle exec puma \
-  -t 4:16 \
-  -b tcp://0.0.0.0:4567 \
-  app.rb
+	-t 4:16 \
+	-b tcp://0.0.0.0:4567 \
+	config.ru
 ```
 
-Use the same host/port and thread counts configured in your `config.yml`. Puma’s multi-threaded mode is required; every disk operation is wrapped in thread-safe primitives inside the app.
+Always point Puma at `config.ru`; it bootstraps the Rack app and pulls in `app.rb`. Run the command from the repository root so Bundler picks up the correct Gemfile (or export `BUNDLE_GEMFILE=/abs/path/to/Gemfile` if you insist on running it elsewhere). Use the same host/port and thread counts configured in your `config.yml`. Puma’s multi-threaded mode is required; every disk operation is wrapped in thread-safe primitives inside the app.
 
 ## API Overview
 All endpoints:
