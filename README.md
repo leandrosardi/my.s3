@@ -10,6 +10,7 @@ Just rent a [Storage VPS](https://contabo.com/en/storage-vps/) and run your own 
 - Thread-safe operations compatible with Puma multi-threading
 - Configurable upload limits, logging, timezone, and symlink policy
 - Zero external services: no database, queues, or UI
+- Lightweight landing page at `/` to confirm the daemon is live (no API key required)
 
 ## Requirements
 - Ruby 3.1.2 (or newer 3.1.x)
@@ -51,6 +52,8 @@ MY_S3_CONFIG=/srv/my_s3/config.yml bundle exec puma \
 ```
 
 Always point Puma at `config.ru`; it bootstraps the Rack app and pulls in `app.rb`. Run the command from the repository root so Bundler picks up the correct Gemfile (or export `BUNDLE_GEMFILE=/abs/path/to/Gemfile` if you insist on running it elsewhere). Use the same host/port and thread counts configured in your `config.yml`. Puma’s multi-threaded mode is required; every disk operation is wrapped in thread-safe primitives inside the app.
+
+Browsing to `/` in a web browser now shows a minimal “MyS3 is live” page (no authentication needed) so you can confirm the daemon is healthy without hitting the JSON API directly. Every other endpoint still requires `X-API-Key`.
 
 ## API Overview
 All endpoints:

@@ -34,8 +34,39 @@ module MyS3
     end
 
     before do
+      @public_request = request.path_info == '/'
+      return if @public_request
+
       content_type :json
       authenticate_request!
+    end
+    get '/' do
+      content_type :html
+      <<~HTML
+        <!doctype html>
+        <html lang="en">
+        <head>
+          <meta charset="utf-8">
+          <title>MyS3</title>
+          <style>
+            body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:#0f172a; color:#f8fafc; margin:0; display:flex; justify-content:center; align-items:center; min-height:100vh; }
+            .card { max-width:420px; text-align:center; padding:2.5rem; border-radius:18px; background:rgba(15,23,42,0.9); box-shadow:0 20px 50px rgba(15,23,42,0.6); }
+            h1 { margin:0 0 0.5rem; font-size:2rem; }
+            p { margin:0.4rem 0; color:#cbd5f5; }
+            code { font-family: "JetBrains Mono", "Fira Code", monospace; background:#1e293b; padding:0.15rem 0.35rem; border-radius:6px; }
+            .status { margin-top:1.5rem; font-size:0.95rem; letter-spacing:0.03em; text-transform:uppercase; color:#34d399; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <h1>MyS3 is live</h1>
+            <p>JSON API is running on <code>#{MyS3.config[:bind_host]}:#{MyS3.config[:port]}</code>.</p>
+            <p>Point your client at <code>/list.json</code> and include the <code>X-API-Key</code> header.</p>
+            <p class="status">Serving #{MyS3.config[:storage_root]}</p>
+          </div>
+        </body>
+        </html>
+      HTML
     end
 
     helpers do
