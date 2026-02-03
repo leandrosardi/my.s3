@@ -5,6 +5,7 @@ require 'json'
 require 'uri'
 require 'time'
 require 'rack/utils'
+require 'rack/mime'
 require 'sinatra/base'
 require 'sinatra/json'
 
@@ -34,8 +35,10 @@ module MyS3
     end
 
     before do
-      @public_request = request.path_info == '/'
-      return if @public_request
+      if request.path_info == '/' || public_file_request?
+        @public_request = true
+        next
+      end
 
       content_type :json
       authenticate_request!
@@ -77,6 +80,12 @@ module MyS3
       def authenticate_request!
         provided_key = request.get_header('HTTP_X_API_KEY')
         unauthorized! unless secure_compare(provided_key.to_s, settings.api_key)
+      end
+
+      def public_file_request?
+        (request.get? || request.head?) &&
+          !request.path_info.end_with?('.json') &&
+          request.path_info != '/'
       end
 
       def secure_compare(given, actual)
@@ -246,6 +255,18 @@ module MyS3
       json_response(public_url: build_public_url(relative))
     rescue StorageError => e
       halt_error 400, e.message
+    end
+
+    get %r{/(.+)} do |relative_path|
+      begin
+        absolute = storage.file_path(relative_path)
+      rescue StorageError
+        halt 404
+      end
+
+      cache_control :public, max_age: 3600
+      content_type Rack::Mime.mime_type(File.extname(absolute), 'application/octet-stream')
+      send_file absolute.to_s, disposition: 'inline'
     end
 
     error StorageError do

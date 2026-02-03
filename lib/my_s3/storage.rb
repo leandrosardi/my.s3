@@ -128,6 +128,13 @@ module MyS3
       segments.join('/')
     end
 
+    def file_path(relative_path)
+      absolute = resolve_path(relative_path)
+      raise StorageError, 'File not found' unless absolute.file?
+
+      absolute
+    end
+
     private
 
     def base_payload(entry_path, entry_relative, stat)
