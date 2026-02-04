@@ -466,6 +466,11 @@ module MyS3
       end
 
       def json_response(data = nil, status_code: 200, **extra)
+        if data.nil? && !extra.empty?
+          data = extra
+          extra = {}
+        end
+
         payload = { success: true }
         payload.merge!(data) if data
         payload.merge!(extra) unless extra.empty?
