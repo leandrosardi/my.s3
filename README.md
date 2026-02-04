@@ -60,7 +60,7 @@ Browsing to `/` in a web browser now shows the Explorer login: submit the API ke
 
 ## Browser Explorer
 
-Point your browser at `/` and enter the API key once to unlock a lightweight explorer UI. The key is stored in an encrypted session cookie so you can click through folders, review file metadata, and delete files or folders without crafting curl commands. Use the breadcrumb navigation to move around and the “Sign out” button to clear the session; closing the browser tab also invalidates the session cookie when it expires.
+Point your browser at `/` and enter the API key once to unlock a lightweight explorer UI. The key is stored in an encrypted session cookie so you can click through folders, review file metadata, download assets, open files in a new tab, and delete files or folders without crafting curl commands. Use the breadcrumb navigation to move around and the “Sign out” button to clear the session; closing the browser tab also invalidates the session cookie when it expires.
 
 ## API Overview
 All endpoints:

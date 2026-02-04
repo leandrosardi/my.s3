@@ -127,6 +127,13 @@ module MyS3
         format('%.2f %s', size, units[index])
       end
 
+      def inline_view_href(relative_file_path)
+        segments = relative_file_path.to_s.split('/').reject(&:empty?).map do |segment|
+          Rack::Utils.escape_path(segment)
+        end
+        "/#{segments.join('/')}"
+      end
+
       def breadcrumbs_for(path)
         segments = path.to_s.split('/').reject(&:empty?)
         crumbs = [{ name: 'Storage Root', path: '' }]
@@ -248,6 +255,8 @@ module MyS3
         end.join
 
         files = listing[:files].map do |file|
+          inline_href = inline_view_href(file[:path])
+          download_href = "/ui/download_file?#{Rack::Utils.build_query(path: current_path, filename: file[:name])}"
           <<~HTML
             <div class="entry">
               <div>
@@ -255,11 +264,15 @@ module MyS3
                 <strong>#{h(file[:name])}</strong>
                 <p class="muted">#{human_size(file[:size_bytes])} • Updated #{h(file[:modified_at])}</p>
               </div>
-              <form method="post" action="/ui/delete_file" onsubmit="return confirm('Delete this file?')">
-                <input type="hidden" name="path" value="#{h(current_path)}">
-                <input type="hidden" name="filename" value="#{h(file[:name])}">
-                <button type="submit" class="danger">Delete</button>
-              </form>
+              <div class="actions">
+                <a class="ghost" href="#{download_href}">Download</a>
+                <a class="ghost" href="#{inline_href}" target="_blank" rel="noopener">Open</a>
+                <form method="post" action="/ui/delete_file" onsubmit="return confirm('Delete this file?')">
+                  <input type="hidden" name="path" value="#{h(current_path)}">
+                  <input type="hidden" name="filename" value="#{h(file[:name])}">
+                  <button type="submit" class="danger">Delete</button>
+                </form>
+              </div>
             </div>
           HTML
         end.join
@@ -337,6 +350,17 @@ module MyS3
               .pill { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 0.15rem 0.75rem; margin-right: 0.5rem; }
               .pill.file { border-color: rgba(248, 250, 252, 0.2); }
               form { margin: 0; }
+              .actions { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; justify-content: flex-end; }
+              .ghost {
+                border: 1px solid rgba(148, 163, 184, 0.4);
+                border-radius: 999px;
+                padding: 0.3rem 0.9rem;
+                color: #e2e8f0;
+                text-decoration: none;
+                font-size: 0.9rem;
+                transition: border-color 0.2s ease, color 0.2s ease;
+              }
+              .ghost:hover { border-color: var(--accent); color: var(--accent); }
               button.danger {
                 border: 1px solid rgba(248, 113, 113, 0.6);
                 color: #fecaca;
@@ -598,6 +622,23 @@ module MyS3
     post '/logout' do
       clear_session_api_key
       redirect '/'
+    end
+
+    get '/ui/download_file' do
+      require_session_auth!
+      path = params['path'].to_s
+      filename = params['filename'].to_s
+      begin
+        relative = storage.public_path(path, filename)
+        absolute = storage.file_path(relative)
+      rescue StorageError => e
+        redirect ui_redirect_path(path: path, error: e.message)
+      end
+
+      send_file absolute.to_s,
+                filename: filename,
+                disposition: 'attachment',
+                type: Rack::Mime.mime_type(File.extname(filename), 'application/octet-stream')
     end
 
     post '/ui/delete_file' do
