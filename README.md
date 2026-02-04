@@ -1,3 +1,5 @@
+![GitHub issues](https://img.shields.io/github/issues/leandrosardi/my.s3) ![GitHub](https://img.shields.io/github/license/leandrosardi/my.s3) ![GitHub tag (latest by date)](https://img.shields.io/github/v/tag/leandrosardi/my.s3) ![GitHub last commit](https://img.shields.io/github/last-commit/leandrosardi/my.s3)
+
 # MyS3
 
 MyS3 is a minimal, open-source object store inspired by AWS S3. It exposes a JSON-only HTTP API, stores every object directly on the filesystem, and is designed to run anywhere Puma and Sinatra are available.
