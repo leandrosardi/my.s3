@@ -586,6 +586,7 @@ module MyS3
     end
 
     get %r{/(.+)} do |relative_path|
+      pass if relative_path.start_with?('ui/')
       begin
         absolute = storage.file_path(relative_path)
       rescue StorageError
