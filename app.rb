@@ -8,6 +8,7 @@ require 'rack/utils'
 require 'rack/mime'
 require 'sinatra/base'
 require 'sinatra/json'
+require 'securerandom'
 
 require_relative 'lib/my_s3/configuration'
 require_relative 'lib/my_s3/storage'
@@ -32,10 +33,16 @@ module MyS3
       set :api_key, MyS3.config[:api_key]
       set :public_base_url, MyS3.config[:public_base_url]
       set :max_upload_size_bytes, MyS3.config[:max_upload_size_bytes]
+      session_secret = MyS3.config[:session_secret].to_s.strip
+      session_secret = SecureRandom.hex(32) if session_secret.empty?
+      set :sessions, key: 'mys3.session',
+                     secret: session_secret,
+                     same_site: :strict,
+                     httponly: true
     end
 
     before do
-      if request.path_info == '/' || public_file_request?
+      if html_ui_request? || public_file_request?
         @public_request = true
         next
       end
@@ -45,36 +52,328 @@ module MyS3
     end
     get '/' do
       content_type :html
-      <<~HTML
-        <!doctype html>
-        <html lang="en">
-        <head>
-          <meta charset="utf-8">
-          <title>MyS3</title>
-          <style>
-            body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:#0f172a; color:#f8fafc; margin:0; display:flex; justify-content:center; align-items:center; min-height:100vh; }
-            .card { max-width:420px; text-align:center; padding:2.5rem; border-radius:18px; background:rgba(15,23,42,0.9); box-shadow:0 20px 50px rgba(15,23,42,0.6); }
-            h1 { margin:0 0 0.5rem; font-size:2rem; }
-            p { margin:0.4rem 0; color:#cbd5f5; }
-            code { font-family: "JetBrains Mono", "Fira Code", monospace; background:#1e293b; padding:0.15rem 0.35rem; border-radius:6px; }
-            .status { margin-top:1.5rem; font-size:0.95rem; letter-spacing:0.03em; text-transform:uppercase; color:#34d399; }
-          </style>
-        </head>
-        <body>
-          <div class="card">
-            <h1>MyS3 is live</h1>
-            <p>JSON API is running on <code>#{MyS3.config[:bind_host]}:#{MyS3.config[:port]}</code>.</p>
-            <p>Point your client at <code>/list.json</code> and include the <code>X-API-Key</code> header.</p>
-            <p class="status">Serving #{MyS3.config[:storage_root]}</p>
-          </div>
-        </body>
-        </html>
-      HTML
+      if authorized_session?
+        path = params['path'].to_s
+        notice = params['notice']
+        error_message = params['error']
+        begin
+          listing = storage.list(path)
+        rescue StorageError => e
+          error_message = [error_message, e.message].compact.join(' • ')
+          listing = storage.list('')
+        end
+        render_browser_page(listing: listing, notice: notice, error: error_message)
+      else
+        render_login_page(error: params['error'])
+      end
     end
 
     helpers do
       def storage
         settings.storage
+      end
+
+      def html_ui_request?
+        ui_paths = ['/', '/logout']
+        ui_paths.include?(request.path_info) || request.path_info.start_with?('/ui/')
+      end
+
+      def session_api_key
+        session[:api_key]
+      end
+
+      def store_session_api_key(value)
+        session[:api_key] = value
+      end
+
+      def clear_session_api_key
+        session.delete(:api_key)
+      end
+
+      def authorized_session?
+        key = session_api_key.to_s
+        return false if key.empty?
+
+        secure_compare(key, settings.api_key)
+      end
+
+      def require_session_auth!
+        return if authorized_session?
+
+        redirect '/'
+      end
+
+      def ui_redirect_path(path:, notice: nil, error: nil)
+        query = {}
+        query[:path] = path unless path.to_s.empty?
+        query[:notice] = notice if notice
+        query[:error] = error if error
+        qs = Rack::Utils.build_query(query)
+        qs.empty? ? '/' : "/?#{qs}"
+      end
+
+      def h(value)
+        Rack::Utils.escape_html(value.to_s)
+      end
+
+      def human_size(bytes)
+        units = %w[B KB MB GB TB]
+        size = bytes.to_f
+        index = 0
+        while size >= 1024 && index < units.length - 1
+          size /= 1024.0
+          index += 1
+        end
+        format('%.2f %s', size, units[index])
+      end
+
+      def breadcrumbs_for(path)
+        segments = path.to_s.split('/').reject(&:empty?)
+        crumbs = [{ name: 'Storage Root', path: '' }]
+        segments.each_with_index do |segment, index|
+          crumb_path = segments[0..index].join('/')
+          crumbs << { name: segment, path: crumb_path }
+        end
+        crumbs
+      end
+
+      def render_login_page(error: nil)
+        <<~HTML
+          <!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <title>MyS3</title>
+            <style>
+              @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600&display=swap');
+              :root {
+                color-scheme: dark;
+                --bg: radial-gradient(circle at top, #172554, #020617 70%);
+                --panel: rgba(15, 23, 42, 0.85);
+                --accent: #38bdf8;
+                --accent-strong: #0ea5e9;
+                --muted: #94a3b8;
+                --error: #f87171;
+              }
+              * { box-sizing: border-box; }
+              body {
+                font-family: 'Space Grotesk', sans-serif;
+                min-height: 100vh;
+                margin: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                background: var(--bg);
+                color: #e2e8f0;
+              }
+              .card {
+                width: min(420px, 90vw);
+                background: var(--panel);
+                border-radius: 1.2rem;
+                padding: 2.5rem;
+                box-shadow: 0 20px 45px rgba(2, 6, 23, 0.75);
+              }
+              h1 { margin-top: 0; font-size: 2rem; }
+              p { color: var(--muted); }
+              .error {
+                background: rgba(248, 113, 113, 0.15);
+                border: 1px solid rgba(248, 113, 113, 0.7);
+                border-radius: 0.75rem;
+                padding: 0.75rem 1rem;
+                margin-bottom: 1.5rem;
+                color: var(--error);
+              }
+              form { display: flex; flex-direction: column; gap: 1rem; margin-top: 1.5rem; }
+              label { font-size: 0.95rem; color: var(--muted); }
+              input[type="password"], input[type="text"] {
+                width: 100%;
+                padding: 0.85rem 1rem;
+                border-radius: 0.8rem;
+                border: 1px solid rgba(148, 163, 184, 0.4);
+                background: rgba(15, 23, 42, 0.6);
+                color: #f8fafc;
+              }
+              button {
+                border: none;
+                border-radius: 999px;
+                padding: 0.95rem;
+                font-size: 1rem;
+                font-weight: 600;
+                background: linear-gradient(120deg, var(--accent), var(--accent-strong));
+                color: #0f172a;
+                cursor: pointer;
+                transition: transform 0.2s ease, box-shadow 0.2s ease;
+              }
+              button:hover { transform: translateY(-2px); box-shadow: 0 10px 25px rgba(14, 165, 233, 0.35); }
+            </style>
+          </head>
+          <body>
+            <section class="card">
+              <h1>Unlock MyS3</h1>
+              <p>Enter the API key to explore your storage.</p>
+              #{error ? "<div class=\"error\">#{h(error)}</div>" : ''}
+              <form method="post" action="/">
+                <label for="api_key">API Key</label>
+                <input id="api_key" type="password" name="api_key" autocomplete="current-password" required>
+                <button type="submit">Start Browsing</button>
+              </form>
+            </section>
+          </body>
+          </html>
+        HTML
+      end
+
+      def render_browser_page(listing:, notice: nil, error: nil)
+        current_path = listing[:path]
+        crumbs = breadcrumbs_for(current_path)
+        notices = []
+        notices << { type: :notice, message: notice } if notice
+        notices << { type: :error, message: error } if error
+        directories = listing[:directories].map do |dir|
+          href = "/?#{Rack::Utils.build_query(path: dir[:path])}"
+          <<~HTML
+            <div class="entry">
+              <div>
+                <span class="pill">Folder</span>
+                <a href="#{href}">#{h(dir[:name])}</a>
+                <p class="muted">Updated #{h(dir[:modified_at])}</p>
+              </div>
+              <form method="post" action="/ui/delete_folder" onsubmit="return confirm('Delete this folder?')">
+                <input type="hidden" name="target_path" value="#{h(dir[:path])}">
+                <input type="hidden" name="current_path" value="#{h(current_path)}">
+                <button type="submit" class="danger">Delete</button>
+              </form>
+            </div>
+          HTML
+        end.join
+
+        files = listing[:files].map do |file|
+          <<~HTML
+            <div class="entry">
+              <div>
+                <span class="pill file">File</span>
+                <strong>#{h(file[:name])}</strong>
+                <p class="muted">#{human_size(file[:size_bytes])} • Updated #{h(file[:modified_at])}</p>
+              </div>
+              <form method="post" action="/ui/delete_file" onsubmit="return confirm('Delete this file?')">
+                <input type="hidden" name="path" value="#{h(current_path)}">
+                <input type="hidden" name="filename" value="#{h(file[:name])}">
+                <button type="submit" class="danger">Delete</button>
+              </form>
+            </div>
+          HTML
+        end.join
+
+        notices_html = notices.map do |flash|
+          css = flash[:type] == :notice ? 'flash notice' : 'flash error'
+          "<div class=\"#{css}\">#{h(flash[:message])}</div>"
+        end.join
+
+        breadcrumbs_html = crumbs.map do |crumb|
+          href = crumb[:path] == current_path ? nil : "/?#{Rack::Utils.build_query(path: crumb[:path])}"
+          href ? "<a href=\"#{href}\">#{h(crumb[:name])}</a>" : "<span>#{h(crumb[:name])}</span>"
+        end.join('<span class="crumb-sep">/</span>')
+
+        <<~HTML
+          <!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <title>MyS3 Browser</title>
+            <style>
+              @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600&display=swap');
+              :root {
+                color-scheme: dark;
+                --bg: linear-gradient(135deg, #020617, #0f172a 55%, #312e81);
+                --panel: rgba(15, 23, 42, 0.85);
+                --muted: #94a3b8;
+                --border: rgba(148, 163, 184, 0.2);
+                --accent: #38bdf8;
+                --danger: #f87171;
+              }
+              * { box-sizing: border-box; }
+              body {
+                margin: 0;
+                min-height: 100vh;
+                font-family: 'Space Grotesk', sans-serif;
+                background: var(--bg);
+                color: #e2e8f0;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                padding: 2rem clamp(1rem, 4vw, 3.5rem);
+              }
+              main {
+                width: min(1100px, 100%);
+                background: var(--panel);
+                border-radius: 1.5rem;
+                padding: clamp(1.5rem, 3vw, 2.75rem);
+                box-shadow: 0 30px 60px rgba(2, 6, 23, 0.65);
+              }
+              header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; }
+              h1 { margin: 0; font-size: clamp(1.5rem, 3vw, 2.4rem); }
+              .logout button {
+                background: transparent;
+                border: 1px solid var(--border);
+                border-radius: 999px;
+                color: #f1f5f9;
+                padding: 0.6rem 1.5rem;
+                cursor: pointer;
+                transition: border-color 0.2s ease;
+              }
+              .logout button:hover { border-color: var(--danger); color: var(--danger); }
+              .breadcrumbs { margin: 1.5rem 0; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; color: var(--muted); }
+              .breadcrumbs a { color: var(--accent); text-decoration: none; }
+              .crumb-sep { color: var(--border); }
+              .flash { padding: 0.85rem 1rem; border-radius: 0.9rem; margin-bottom: 1rem; }
+              .flash.notice { background: rgba(56, 189, 248, 0.18); border: 1px solid rgba(56, 189, 248, 0.4); }
+              .flash.error { background: rgba(248, 113, 113, 0.18); border: 1px solid rgba(248, 113, 113, 0.4); }
+              section { margin-top: 2rem; }
+              .entry { display: flex; justify-content: space-between; align-items: center; padding: 1rem 0; border-bottom: 1px solid var(--border); gap: 1rem; }
+              .entry:last-child { border-bottom: none; }
+              .entry strong, .entry a { font-size: 1rem; }
+              .entry a { color: #f8fafc; text-decoration: none; }
+              .muted { color: var(--muted); margin: 0.2rem 0 0; font-size: 0.9rem; }
+              .pill { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 0.15rem 0.75rem; margin-right: 0.5rem; }
+              .pill.file { border-color: rgba(248, 250, 252, 0.2); }
+              form { margin: 0; }
+              button.danger {
+                border: 1px solid rgba(248, 113, 113, 0.6);
+                color: #fecaca;
+                background: transparent;
+                border-radius: 999px;
+                padding: 0.35rem 1.1rem;
+                cursor: pointer;
+                transition: background 0.2s ease, color 0.2s ease;
+              }
+              button.danger:hover { background: rgba(248, 113, 113, 0.15); color: #fee2e2; }
+            </style>
+          </head>
+          <body>
+            <main>
+              <header>
+                <div>
+                  <h1>MyS3 Browser</h1>
+                  <p class="muted">#{current_path.empty? ? 'Browsing storage root' : h(current_path)}</p>
+                </div>
+                <form class="logout" method="post" action="/logout">
+                  <button type="submit">Sign out</button>
+                </form>
+              </header>
+              <div class="breadcrumbs">#{breadcrumbs_html}</div>
+              #{notices_html}
+              <section>
+                <h2>Folders</h2>
+                #{directories.empty? ? '<p class="muted">No folders here yet.</p>' : directories}
+              </section>
+              <section>
+                <h2>Files</h2>
+                #{files.empty? ? '<p class="muted">No files here yet.</p>' : files}
+              </section>
+            </main>
+          </body>
+          </html>
+        HTML
       end
 
       def authenticate_request!
@@ -283,6 +582,47 @@ module MyS3
 
     not_found do
       halt_error 404, 'Endpoint not found'
+    end
+
+    post '/' do
+      api_key = params['api_key'].to_s.strip
+      if secure_compare(api_key, settings.api_key)
+        store_session_api_key(api_key)
+        redirect '/'
+      else
+        clear_session_api_key
+        redirect '/?error=Invalid+API+key'
+      end
+    end
+
+    post '/logout' do
+      clear_session_api_key
+      redirect '/'
+    end
+
+    post '/ui/delete_file' do
+      require_session_auth!
+      path = params['path'].to_s
+      filename = params['filename'].to_s
+      begin
+        storage.delete_file(path, filename)
+        redirect ui_redirect_path(path: path, notice: "Deleted file #{filename}")
+      rescue StorageError => e
+        redirect ui_redirect_path(path: path, error: e.message)
+      end
+    end
+
+    post '/ui/delete_folder' do
+      require_session_auth!
+      target_path = params['target_path'].to_s
+      current_path = params['current_path'].to_s
+      begin
+        storage.delete_folder(target_path)
+        folder_name = File.basename(target_path.to_s)
+        redirect ui_redirect_path(path: current_path, notice: "Deleted folder #{folder_name}")
+      rescue StorageError => e
+        redirect ui_redirect_path(path: current_path, error: e.message)
+      end
     end
 
     run! if app_file == $PROGRAM_NAME

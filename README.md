@@ -42,6 +42,7 @@ All configuration lives in `config.yml` and is never exposed through the API. Th
 | `puma_threads_min/max` | Puma thread pool size hints. |
 | `log_level`, `log_file` | Standard Ruby logger options. |
 | `timezone` | Sets `ENV['TZ']` for consistent timestamps. |
+| `session_secret` | Optional secret used to sign the browser session cookie; defaults to a random value at boot. |
 
 Any relative paths are resolved against the configuration file directory. The application creates the storage root and `log/` directory on boot when needed.
 
@@ -55,7 +56,11 @@ MY_S3_CONFIG=/srv/my_s3/config.yml bundle exec puma \
 
 Always point Puma at `config.ru`; it bootstraps the Rack app and pulls in `app.rb`. Run the command from the repository root so Bundler picks up the correct Gemfile (or export `BUNDLE_GEMFILE=/abs/path/to/Gemfile` if you insist on running it elsewhere). Use the same host/port and thread counts configured in your `config.yml`. Puma’s multi-threaded mode is required; every disk operation is wrapped in thread-safe primitives inside the app.
 
-Browsing to `/` in a web browser now shows a minimal “MyS3 is live” page (no authentication needed) so you can confirm the daemon is healthy without hitting the JSON API directly. Every other endpoint still requires `X-API-Key`.
+Browsing to `/` in a web browser now shows the Explorer login: submit the API key once and the session cookie unlocks the UI. All JSON endpoints still require the `X-API-Key` header for every request.
+
+## Browser Explorer
+
+Point your browser at `/` and enter the API key once to unlock a lightweight explorer UI. The key is stored in an encrypted session cookie so you can click through folders, review file metadata, and delete files or folders without crafting curl commands. Use the breadcrumb navigation to move around and the “Sign out” button to clear the session; closing the browser tab also invalidates the session cookie when it expires.
 
 ## API Overview
 All endpoints:
